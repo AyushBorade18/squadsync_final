@@ -1,0 +1,51 @@
+@import "tailwindcss";
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@theme {
+  --color-paper: #f6f5f0;
+  --color-surface: #ffffff;
+  --color-ink: #14181a;
+  --color-ink-muted: #5c6167;
+  --color-ink-faint: #8b9096;
+  --color-line: #e4e2da;
+  --color-line-strong: #cfccc2;
+
+  --color-pitch: #1f5c40;
+  --color-pitch-dark: #143f2c;
+  --color-pitch-soft: #e6efe7;
+  --color-pitch-mist: #f0f5f1;
+
+  --color-leather: #a13a2c;
+  --color-leather-soft: #f6e7e3;
+
+  --color-gold: #a9781f;
+  --color-gold-soft: #f5eedd;
+
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+html { color-scheme: light; }
+body { background: var(--color-paper); color: var(--color-ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+.tabular { font-variant-numeric: tabular-nums; }
+.hairline { border: 1px solid var(--color-line); }
+.node-field {
+  background-image: radial-gradient(var(--color-line-strong) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: -6px -6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+:focus-visible { outline: 2px solid var(--color-pitch); outline-offset: 2px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.input { width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--color-line); padding: 0.55rem 0.75rem; font-size: 0.875rem; background: var(--color-paper); }
+.input:focus { outline: 2px solid var(--color-pitch); outline-offset: 1px; }
+.cell { width: 100%; min-width: 3.5rem; border-radius: 6px; border: 1px solid var(--color-line); padding: 0.3rem 0.4rem; font-size: 0.8125rem; background: var(--color-paper); }
+.cell:focus { outline: 2px solid var(--color-pitch); }
