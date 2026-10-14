@@ -145,3 +145,68 @@ requests, Playing XI, toss, and untracked-opponent columns/tables.
    SPA rewrite so client-side routing works on refresh.
 3. Re-run `sql/phase4_migration.sql` against the **same Supabase project** your deployed env
    vars point to — the RLS fix above only takes effect once it's run there.
+
+## Phase 11 update — fixed from live two-account testing (scorecard, analytics, mobile)
+
+- **Fixed: opponent's name showed as "Unknown" in the Scorecard, and the challenged team
+  saw "No scorecard was recorded for this match" / blank analytics.** Two separate bugs that
+  looked related:
+  1. `ScorecardViewer` (Matches page) only ever fetched YOUR team's roster to resolve
+     `player_id -> name`, so the other side's rows (which were always there) rendered as
+     "Unknown". It now fetches both rosters.
+  2. `batting_performances`/`bowling_performances` predate this project's own migrations, and
+     their original Supabase select policy only ever recognized the match's host
+     (`matches.team_id`), never the challenger (`matches.opponent_team_id`) — so the
+     non-host side's SELECT returned zero rows, for their own stats as well as the
+     opponent's. That's why only the scoring team's Analytics ever had numbers. **Fixed in
+     `sql/phase4_migration.sql`** (new "either side" select/write policies for both tables) —
+     **you must re-run this file against your live Supabase project** for this to take
+     effect; the code fix alone does not change what the database returns.
+- **Mobile navigation now has every section.** The bottom bar used to hard-code 5 tabs and
+  silently drop the rest (Team Selection, Decision Engine, Batting Order, Bowling Planner,
+  Match Requests, What-If Simulator, Tournaments, Leaderboard, Settings, My Profile, My
+  Performance were all unreachable on a phone). The bar now shows the 4 most-used sections
+  (Home, Matches, Live, Analytics) plus a "More" button that opens every remaining section —
+  the exact same list as the desktop sidebar, nothing held back.
+- **Mobile layout overflow.** A handful of pages (the Scorecard modal's tables in particular)
+  could render wider than the phone's screen, which is what forced pinch-zooming to read
+  anything. Tables now scroll horizontally inside their own card instead of widening the
+  page, and the whole app now has a document-level safety net (`overflow-x: hidden` on
+  `html`/`body`) so no single wide element can drag the page wider than the viewport again.
+- **Tests, typecheck, and production build all verified clean** (`npm test` — 77/77,
+  `npx tsc -b`, `npm run build`) before this was packaged.
+
+### What to do with this update (you're already deployed)
+
+1. **Supabase first** — open your Supabase project's SQL editor and re-run the whole
+   `sql/phase4_migration.sql` file. It's fully idempotent, so re-running it is safe even
+   though you've run earlier versions of it before; this is what actually fixes the
+   scorecard/analytics visibility bug — the code changes alone can't fix a database-level
+   permission gap.
+2. **Push the code.**
+   - If this project is already a Git repo connected to Vercel: replace the changed files
+     (`src/pages/shared/Matches.tsx`, `src/pages/player/Performance.tsx`,
+     `src/components/Shell.tsx`, `src/components/primitives.tsx`, `src/index.css`,
+     `sql/phase4_migration.sql`, this `README.md`) with the ones in this zip, then:
+     ```
+     git add -A
+     git commit -m "Fix scorecard/analytics visibility and mobile nav"
+     git push
+     ```
+     Vercel auto-redeploys on every push to the connected branch — no dashboard steps needed.
+   - If you haven't put this in Git yet: create a new GitHub repo, then from this project's
+     folder:
+     ```
+     git init
+     git add -A
+     git commit -m "SquadSync"
+     git branch -M main
+     git remote add origin https://github.com/<you>/<repo>.git
+     git push -u origin main
+     ```
+     Then on [vercel.com](https://vercel.com) → "Add New Project" → import that repo →
+     framework preset "Vite" → add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (from your
+     own `.env`, never committed) → Deploy.
+3. **Double-check the env vars on Vercel** (Project → Settings → Environment Variables) point
+   at the same Supabase project you just ran the SQL against — a mismatch here looks exactly
+   like an RLS bug (silent empty data) but isn't one.

@@ -89,7 +89,13 @@ export function MatchesPage({ role }: { role: 'player' | 'coach' }) {
       )}
 
       {showNew && <NewMatchModal teamId={team.id} onClose={() => setShowNew(false)} />}
-      {viewing && <ScorecardViewer matchId={viewing} teamId={team.id} onClose={() => setViewing(null)} />}
+      {viewing && (
+        <ScorecardViewer
+          matchId={viewing} teamId={team.id}
+          opponentTeamId={matches!.find((m) => m.id === viewing)?.opponentTeamId ?? null}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -141,10 +147,13 @@ function NewMatchModal({ teamId, onClose }: { teamId: string; onClose: () => voi
 }
 
 
-function ScorecardViewer({ matchId, teamId, onClose }: { matchId: string; teamId: string; onClose: () => void }) {
+function ScorecardViewer({ matchId, teamId, opponentTeamId, onClose }: { matchId: string; teamId: string; opponentTeamId: string | null; onClose: () => void }) {
   const { data, isLoading, error } = useScorecard(matchId);
+  // A completed match's scorecard has players from BOTH sides — fetch both rosters (not just
+  // ours) so the opposing team's names resolve too instead of falling back to "Unknown".
   const { data: players } = usePlayers(teamId);
-  const nameOf = (id: string) => players?.find((p) => p.id === id)?.name ?? 'Unknown';
+  const { data: opponentPlayers } = usePlayers(opponentTeamId ?? undefined);
+  const nameOf = (id: string) => players?.find((p) => p.id === id)?.name ?? opponentPlayers?.find((p) => p.id === id)?.name ?? 'Unknown';
 
   return (
     <Modal title="Scorecard" onClose={onClose} wide>
@@ -165,12 +174,14 @@ function ScorecardViewer({ matchId, teamId, onClose }: { matchId: string; teamId
                   <span className="tabular text-sm text-[var(--color-ink-muted)]">{totalRuns}/{totalWickets} ({formatOvers(totalLegalBalls)} ov)</span>
                 </div>
                 <SectionLabel>Batting</SectionLabel>
-                <table className="w-full text-sm mb-4">
+                <div className="overflow-x-auto mb-4">
+                <table className="w-full text-sm min-w-[360px]">
                   <thead><tr className="text-left text-xs text-[var(--color-ink-muted)]"><th className="py-1">Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead>
                   <tbody>{bat.map((b) => (
-                    <tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 font-medium">{nameOf(b.playerId)} {b.status === 'not_out' && <span className="text-[var(--color-ink-faint)]">*</span>}</td><td className="tabular">{b.runs}</td><td className="tabular">{b.balls}</td><td className="tabular">{b.fours}</td><td className="tabular">{b.sixes}</td><td className="tabular">{b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : '—'}</td></tr>
+                    <tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 font-medium whitespace-nowrap">{nameOf(b.playerId)} {b.status === 'not_out' && <span className="text-[var(--color-ink-faint)]">*</span>}</td><td className="tabular">{b.runs}</td><td className="tabular">{b.balls}</td><td className="tabular">{b.fours}</td><td className="tabular">{b.sixes}</td><td className="tabular">{b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : '—'}</td></tr>
                   ))}</tbody>
                 </table>
+                </div>
                 {chartData.length > 0 && (
                   <div className="mb-4">
                     <ResponsiveContainer width="100%" height={160}>
@@ -187,12 +198,14 @@ function ScorecardViewer({ matchId, teamId, onClose }: { matchId: string; teamId
                 {bowl.length > 0 && (
                   <>
                     <SectionLabel>Bowling</SectionLabel>
-                    <table className="w-full text-sm">
+                    <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[360px]">
                       <thead><tr className="text-left text-xs text-[var(--color-ink-muted)]"><th className="py-1">Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th></tr></thead>
                       <tbody>{bowl.map((b) => (
-                        <tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 font-medium">{nameOf(b.playerId)}</td><td className="tabular">{formatOvers(b.legalBalls)}</td><td className="tabular">{b.maidens}</td><td className="tabular">{b.runs}</td><td className="tabular">{b.wickets}</td><td className="tabular">{b.legalBalls ? (b.runs / (b.legalBalls / 6)).toFixed(2) : '—'}</td></tr>
+                        <tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 font-medium whitespace-nowrap">{nameOf(b.playerId)}</td><td className="tabular">{formatOvers(b.legalBalls)}</td><td className="tabular">{b.maidens}</td><td className="tabular">{b.runs}</td><td className="tabular">{b.wickets}</td><td className="tabular">{b.legalBalls ? (b.runs / (b.legalBalls / 6)).toFixed(2) : '—'}</td></tr>
                       ))}</tbody>
                     </table>
+                    </div>
                   </>
                 )}
               </div>

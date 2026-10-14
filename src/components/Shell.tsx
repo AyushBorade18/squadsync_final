@@ -1,8 +1,8 @@
-import { type ReactNode } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { type ReactNode, useState } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutGrid, User, TrendingUp, Users, CalendarDays, Radio, BarChart3, Trophy, Award,
-  Settings, Target, GitBranch, ListOrdered, Wind, Shield, FlaskConical, LogOut, Swords,
+  Settings, Target, GitBranch, ListOrdered, Wind, Shield, FlaskConical, LogOut, Swords, Menu, X,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { Avatar } from './primitives';
@@ -40,18 +40,28 @@ const coachNav: NavItem[] = [
   { to: '/coach/settings', label: 'Settings', icon: Settings },
 ];
 
-const mobileNav = (role: 'player' | 'coach'): NavItem[] => [
+// Only the 4 most-used sections get a permanent bottom-nav slot — everything else (every
+// single sidebar item still exists on mobile, just one tap further) lives behind "More".
+// Live Match used to be missing from mobile entirely even though it's the single most
+// time-critical screen during an actual match — it's now pinned here alongside it.
+const mobilePrimary = (role: 'player' | 'coach'): NavItem[] => [
   { to: role === 'player' ? '/player' : '/coach', label: 'Home', icon: LayoutGrid },
   { to: role === 'player' ? '/player/matches' : '/coach/matches', label: 'Matches', icon: CalendarDays },
-  { to: role === 'player' ? '/player/team' : '/coach/team', label: 'Team', icon: Users },
+  { to: role === 'player' ? '/player/live' : '/coach/live', label: 'Live', icon: Radio },
   { to: role === 'player' ? '/player/analytics' : '/coach/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: role === 'player' ? '/player/settings' : '/coach/settings', label: 'More', icon: Settings },
 ];
 
 export function Shell({ role, children }: { role: 'player' | 'coach'; children: ReactNode }) {
   const { profile, team, logOut } = useAuth();
   const nav = useNavigate();
+  const location = useLocation();
+  const [moreOpen, setMoreOpen] = useState(false);
   const items = role === 'player' ? playerNav : coachNav;
+  const primary = mobilePrimary(role);
+  // Everything NOT already pinned to the bottom bar shows up in "More" — every desktop
+  // sidebar tab stays reachable on mobile, none of them silently dropped.
+  const moreItems = items.filter((it) => !primary.some((p) => p.to === it.to));
+  const moreIsActive = moreItems.some((it) => location.pathname === it.to || (it.to !== '/player' && it.to !== '/coach' && location.pathname.startsWith(it.to + '/')));
 
   return (
     <div className="min-h-screen bg-[var(--color-paper)] md:flex">
@@ -108,12 +118,45 @@ export function Shell({ role, children }: { role: 'player' | 'coach'; children: 
 
       {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 bg-[var(--color-surface)] border-t border-[var(--color-line)] flex justify-around py-1.5">
-        {mobileNav(role).map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} end={to === '/player' || to === '/coach'} className={({ isActive }) => `flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[11px] font-medium ${isActive ? 'text-[var(--color-pitch)]' : 'text-[var(--color-ink-faint)]'}`}>
-            <Icon size={19} /> {label}
+        {primary.map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to} end={to === '/player' || to === '/coach'} className={({ isActive }) => `flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[11px] font-medium min-w-0 ${isActive ? 'text-[var(--color-pitch)]' : 'text-[var(--color-ink-faint)]'}`}>
+            <Icon size={19} /> <span className="truncate max-w-[64px]">{label}</span>
           </NavLink>
         ))}
+        <button
+          onClick={() => setMoreOpen(true)}
+          aria-label="More"
+          className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[11px] font-medium min-w-0 ${moreIsActive ? 'text-[var(--color-pitch)]' : 'text-[var(--color-ink-faint)]'}`}
+        >
+          <Menu size={19} /> More
+        </button>
       </nav>
+
+      {/* Mobile "More" drawer — every remaining sidebar section, one tap away. */}
+      {moreOpen && (
+        <div className="md:hidden fixed inset-0 z-30 flex items-end" role="dialog" aria-label="More navigation">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setMoreOpen(false)} />
+          <div className="relative w-full bg-[var(--color-surface)] rounded-t-[var(--radius-lg)] max-h-[80vh] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+            <div className="flex items-center justify-between px-5 h-14 border-b border-[var(--color-line)] sticky top-0 bg-[var(--color-surface)]">
+              <span className="font-bold text-sm">More</span>
+              <button onClick={() => setMoreOpen(false)} aria-label="Close" className="p-1.5 rounded hover:bg-black/5"><X size={18} /></button>
+            </div>
+            <div className="p-3 grid grid-cols-3 gap-2">
+              {moreItems.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to} to={to} onClick={() => setMoreOpen(false)}
+                  className={({ isActive }) => `flex flex-col items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-3 text-xs font-medium text-center ${isActive ? 'bg-[var(--color-pitch-soft)] text-[var(--color-pitch-dark)]' : 'text-[var(--color-ink-muted)] hover:bg-black/[0.035]'}`}
+                >
+                  <Icon size={20} strokeWidth={2} /> <span className="leading-tight">{label}</span>
+                </NavLink>
+              ))}
+            </div>
+            <button onClick={() => { setMoreOpen(false); logOut(); nav('/'); }} className="w-full flex items-center gap-2 px-5 py-3.5 border-t border-[var(--color-line)] text-sm text-[var(--color-ink-muted)]">
+              <LogOut size={16} /> Log out
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

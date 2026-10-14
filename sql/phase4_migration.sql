@@ -496,3 +496,66 @@ create policy "players_insert_own_or_untracked_opponent" on players
     is_coach_of_team(team_id)
     or exists (select 1 from teams t where t.id = players.team_id and t.owner_profile_id is null)
   );
+
+-- ============================================================================
+-- Phase 10 fix — the big one from live two-account testing:
+--   1. The challenged/non-host team got "No scorecard was recorded for this match" even
+--      though the host could see a full scorecard, AND that same team's Analytics/stats
+--      never populated (runs/average/wickets stayed blank) no matter how many matches they
+--      played — only the side that actually performed the live scoring ever saw its own
+--      numbers. batting_performances/bowling_performances predate this project's migration
+--      files, so their original select policy is unknown, but every symptom points at the
+--      same root cause: that policy was scoped to matches.team_id (the host) only, never
+--      matches.opponent_team_id (the challenger) — so the non-host side's own rows (not just
+--      the opponent's) were invisible to RLS. This ADDS a permissive "either side" select
+--      policy on top of whatever already exists (Postgres OR's multiple permissive policies
+--      together for the same command, so this only ever grants more access, never less).
+--   2. Same reasoning applied to insert/update, so finishing a match works regardless of
+--      which side (host or a delegated scorer) performed the live scoring.
+-- Safe to re-run; every statement is idempotent.
+-- ============================================================================
+drop policy if exists "batting_performances_select_either_side" on batting_performances;
+create policy "batting_performances_select_either_side" on batting_performances
+  for select using (exists (
+    select 1 from matches m where m.id = batting_performances.match_id
+      and (is_member_of_team(m.team_id) or (m.opponent_team_id is not null and is_member_of_team(m.opponent_team_id)))
+  ));
+drop policy if exists "batting_performances_write_either_coach" on batting_performances;
+create policy "batting_performances_write_either_coach" on batting_performances
+  for all using (exists (
+    select 1 from matches m where m.id = batting_performances.match_id
+      and (is_coach_of_team(m.team_id) or (m.opponent_team_id is not null and is_coach_of_team(m.opponent_team_id)))
+  )) with check (exists (
+    select 1 from matches m where m.id = batting_performances.match_id
+      and (is_coach_of_team(m.team_id) or (m.opponent_team_id is not null and is_coach_of_team(m.opponent_team_id)))
+  ));
+
+drop policy if exists "bowling_performances_select_either_side" on bowling_performances;
+create policy "bowling_performances_select_either_side" on bowling_performances
+  for select using (exists (
+    select 1 from matches m where m.id = bowling_performances.match_id
+      and (is_member_of_team(m.team_id) or (m.opponent_team_id is not null and is_member_of_team(m.opponent_team_id)))
+  ));
+drop policy if exists "bowling_performances_write_either_coach" on bowling_performances;
+create policy "bowling_performances_write_either_coach" on bowling_performances
+  for all using (exists (
+    select 1 from matches m where m.id = bowling_performances.match_id
+      and (is_coach_of_team(m.team_id) or (m.opponent_team_id is not null and is_coach_of_team(m.opponent_team_id)))
+  )) with check (exists (
+    select 1 from matches m where m.id = bowling_performances.match_id
+      and (is_coach_of_team(m.team_id) or (m.opponent_team_id is not null and is_coach_of_team(m.opponent_team_id)))
+  ));
+
+-- live_innings/live_overs/live_balls SELECT already covers either side (see Phase 5 above),
+-- but double-check it's actually in place in case an older project only ran part of this
+-- file — this is a no-op if it's already there.
+drop policy if exists "live_innings_select_either_side" on live_innings;
+create policy "live_innings_select_either_side" on live_innings
+  for select using (is_member_of_team(batting_team_id) or is_member_of_team(bowling_team_id));
+
+-- The untracked-opponent Playing XI form captures a WHOLE lineup in one submit; if the
+-- player INSERT above succeeds but the match has no opponent_team_id row visible yet (edge
+-- case: match row fetched before this team's own join resolved), the playing_xi insert that
+-- immediately follows in the same request needs the same "either side" latitude as matches
+-- generally get, which it already has from Phase 5 (playing_xi_write_own_coach checks
+-- is_coach_of_team(team_id) directly, not via a match join, so it's unaffected by this).

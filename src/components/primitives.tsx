@@ -117,11 +117,11 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   const downOnBackdrop = useRef(false);
   return (
     <div
-      className="fixed inset-0 z-20 bg-black/30 flex items-center justify-center p-4"
+      className="fixed inset-0 z-20 bg-black/30 flex items-center justify-center p-3 sm:p-4"
       onMouseDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
       onClick={(e) => { if (downOnBackdrop.current && e.target === e.currentTarget) onClose(); downOnBackdrop.current = false; }}
     >
-      <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} className={`bg-[var(--color-surface)] rounded-[var(--radius-lg)] w-full ${wide ? 'max-w-2xl' : 'max-w-md'} max-h-[85vh] overflow-y-auto p-6`}>
+      <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} className={`bg-[var(--color-surface)] rounded-[var(--radius-lg)] w-full ${wide ? 'max-w-2xl' : 'max-w-md'} max-h-[85vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6`}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-lg">{title}</h2>
           <button onClick={onClose} className="p-1 hover:bg-black/5 rounded" aria-label="Close"><X size={18} /></button>

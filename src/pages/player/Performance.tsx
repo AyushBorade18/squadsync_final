@@ -23,19 +23,23 @@ export function PlayerPerformance() {
       {bat.length > 0 && (
         <Card className="p-5 mb-4">
           <SectionLabel>Batting, innings by innings</SectionLabel>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[320px]">
             <thead><tr className="text-left text-xs text-[var(--color-ink-muted)]"><th className="py-1">Runs</th><th>Balls</th><th>4s</th><th>6s</th><th>SR</th></tr></thead>
             <tbody>{bat.map((b) => (<tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 tabular font-medium">{b.runs}{b.status === 'not_out' && '*'}</td><td className="tabular">{b.balls}</td><td className="tabular">{b.fours}</td><td className="tabular">{b.sixes}</td><td className="tabular">{b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : '—'}</td></tr>))}</tbody>
           </table>
+          </div>
         </Card>
       )}
       {bowl.length > 0 && (
         <Card className="p-5">
           <SectionLabel>Bowling, innings by innings</SectionLabel>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[320px]">
             <thead><tr className="text-left text-xs text-[var(--color-ink-muted)]"><th className="py-1">Overs</th><th>Runs</th><th>Wkts</th><th>Econ</th></tr></thead>
             <tbody>{bowl.map((b) => (<tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 tabular font-medium">{formatOvers(b.legalBalls)}</td><td className="tabular">{b.runs}</td><td className="tabular">{b.wickets}</td><td className="tabular">{b.legalBalls ? (b.runs / (b.legalBalls / 6)).toFixed(2) : '—'}</td></tr>))}</tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>
