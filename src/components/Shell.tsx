@@ -2,9 +2,10 @@ import { type ReactNode, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutGrid, User, TrendingUp, Users, CalendarDays, Radio, BarChart3, Trophy, Award,
-  Settings, Target, GitBranch, ListOrdered, Wind, Shield, FlaskConical, LogOut, Swords, Menu, X,
+  Settings, Target, GitBranch, ListOrdered, Wind, Shield, FlaskConical, LogOut, Swords, Menu, X, Bell,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import { useMatchRequests } from '../lib/queries';
 import { Avatar } from './primitives';
 
 interface NavItem { to: string; label: string; icon: typeof User }
@@ -63,6 +64,10 @@ export function Shell({ role, children }: { role: 'player' | 'coach'; children: 
   const moreItems = items.filter((it) => !primary.some((p) => p.to === it.to));
   const moreIsActive = moreItems.some((it) => location.pathname === it.to || (it.to !== '/player' && it.to !== '/coach' && location.pathname.startsWith(it.to + '/')));
 
+  // Incoming match-request notifications — only coaches send/receive these.
+  const { data: requests } = useMatchRequests(role === 'coach' ? team?.id : undefined);
+  const pendingIncoming = (requests ?? []).filter((r) => r.status === 'pending' && r.toTeamId === team?.id).length;
+
   return (
     <div className="min-h-screen bg-[var(--color-paper)] md:flex">
       {/* Desktop sidebar */}
@@ -86,6 +91,9 @@ export function Shell({ role, children }: { role: 'player' | 'coach'; children: 
               }
             >
               <Icon size={17} strokeWidth={2} /> {label}
+              {to === '/coach/match-requests' && pendingIncoming > 0 && (
+                <span className="ml-auto inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-[var(--color-leather)] text-white text-[10px] font-bold">{pendingIncoming}</span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -110,7 +118,15 @@ export function Shell({ role, children }: { role: 'player' | 'coach'; children: 
             <div className="h-6 w-6 rounded-[6px] bg-[var(--color-pitch)] flex items-center justify-center"><div className="h-2 w-2 rounded-full bg-[var(--color-gold)]" /></div>
             <span className="font-bold text-sm">SquadSync</span>
           </div>
-          <button onClick={() => { logOut(); nav('/'); }} aria-label="Log out"><LogOut size={18} className="text-[var(--color-ink-muted)]" /></button>
+          <div className="flex items-center gap-4">
+            {role === 'coach' && (
+              <NavLink to="/coach/match-requests" aria-label="Match requests" className="relative">
+                <Bell size={19} className="text-[var(--color-ink-muted)]" />
+                {pendingIncoming > 0 && <span className="absolute -top-1.5 -right-2 h-4 min-w-4 px-1 rounded-full bg-[var(--color-leather)] text-white text-[10px] font-bold flex items-center justify-center">{pendingIncoming}</span>}
+              </NavLink>
+            )}
+            <button onClick={() => { logOut(); nav('/'); }} aria-label="Log out"><LogOut size={18} className="text-[var(--color-ink-muted)]" /></button>
+          </div>
         </header>
 
         <main className="px-4 py-6 md:px-8 md:py-8 pb-24 md:pb-8 max-w-[1200px]">{children}</main>
@@ -128,7 +144,7 @@ export function Shell({ role, children }: { role: 'player' | 'coach'; children: 
           aria-label="More"
           className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[11px] font-medium min-w-0 ${moreIsActive ? 'text-[var(--color-pitch)]' : 'text-[var(--color-ink-faint)]'}`}
         >
-          <Menu size={19} /> More
+          <span className="relative"><Menu size={19} />{pendingIncoming > 0 && <span className="absolute -top-1 -right-1.5 h-2.5 w-2.5 rounded-full bg-[var(--color-leather)]" />}</span> More
         </button>
       </nav>
 
@@ -147,7 +163,7 @@ export function Shell({ role, children }: { role: 'player' | 'coach'; children: 
                   key={to} to={to} onClick={() => setMoreOpen(false)}
                   className={({ isActive }) => `flex flex-col items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-3 text-xs font-medium text-center ${isActive ? 'bg-[var(--color-pitch-soft)] text-[var(--color-pitch-dark)]' : 'text-[var(--color-ink-muted)] hover:bg-black/[0.035]'}`}
                 >
-                  <Icon size={20} strokeWidth={2} /> <span className="leading-tight">{label}</span>
+                  <span className="relative"><Icon size={20} strokeWidth={2} />{to === '/coach/match-requests' && pendingIncoming > 0 && <span className="absolute -top-1.5 -right-2.5 h-4 min-w-4 px-1 rounded-full bg-[var(--color-leather)] text-white text-[10px] font-bold flex items-center justify-center">{pendingIncoming}</span>}</span> <span className="leading-tight">{label}</span>
                 </NavLink>
               ))}
             </div>

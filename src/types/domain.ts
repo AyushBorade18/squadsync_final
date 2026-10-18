@@ -51,10 +51,13 @@ export interface BattingPerformance {
   id: string; matchId: string; playerId: string; innings: 1 | 2; position: number;
   runs: number; balls: number; fours: number; sixes: number;
   status: 'not_out' | 'out' | 'did_not_bat'; dismissal: string | null;
+  /** Embedded from the players table at fetch time so a scorecard never depends on a separate roster lookup succeeding. */
+  playerName?: string;
 }
 export interface BowlingPerformance {
   id: string; matchId: string; playerId: string; innings: 1 | 2;
   legalBalls: number; maidens: number; runs: number; wickets: number; wides: number; noBalls: number;
+  playerName?: string;
 }
 export interface InningsSummary { matchId: string; innings: 1 | 2; battingTeam: string; runs: number; wickets: number; legalBalls: number; }
 
@@ -95,5 +98,9 @@ export interface LiveBallRow {
   runsOffBat: number; extraType: ExtraType | 'none'; extraRuns: number; shotZone: ShotZone | null;
   isWicket: boolean; wicketKind: DismissalKind | null;
   strikerId: string | null; nonStrikerId: string | null; bowlerId: string | null; dismissedPlayerId: string | null;
+  /** Fielding credit — who caught it, effected the run out, or did the stumping. Only ever
+   *  set for caught/run_out/stumped; null for every other dismissal kind and every non-wicket
+   *  ball. */
+  fielderId: string | null;
 }
 export interface LiveOverRow { id: string; inningsId: string; overNumber: number; bowlerId: string; runsConceded: number; wicketsTaken: number; }

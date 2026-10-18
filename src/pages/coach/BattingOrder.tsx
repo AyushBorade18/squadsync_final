@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAuth } from '../../lib/auth';
 import { usePlayers, useTeamStats } from '../../lib/queries';
 import { toSquadPlayer } from '../../lib/repo';
+import { PlayerPicker } from '../../components/PlayerPicker';
 import { Card, EmptyState, Avatar, LoadingState, ErrorState } from '../../components/primitives';
 import { recommendXI, DEFAULT_BASELINES } from '../../algorithms/selection';
 import { recommendBattingOrder, moveInOrder, orderScore } from '../../algorithms/battingOrder';
@@ -11,11 +12,13 @@ import { ChevronUp, ChevronDown } from 'lucide-react';
 export function BattingOrderPage() {
   const { team } = useAuth();
   const [order, setOrder] = useState<string[] | null>(null);
+  // The coach confirms the XI for THIS match first — nothing is assumed from a previous run.
+  const [xiIds, setXiIds] = useState<string[] | null>(null);
   const { data: players, isLoading: lp, error: ep } = usePlayers(team?.id);
   const { data: stats, isLoading: ls, error: es } = useTeamStats(team?.id);
 
   const rules = getFormat('T20');
-  const squad = players && stats ? players.map((p) => toSquadPlayer(p, stats[p.id])) : [];
+  const squad = players && stats && xiIds ? players.filter((p) => xiIds.includes(p.id)).map((p) => toSquadPlayer(p, stats[p.id])) : [];
   const rec = useMemo(() => recommendXI(squad, rules, DEFAULT_BASELINES.T20), [squad, rules]);
   const currentOrder = order ?? recommendBattingOrder(rec.picks);
   const batSkill = Object.fromEntries(rec.picks.map((p) => [p.player.id, p.skills.bat]));
@@ -28,13 +31,17 @@ export function BattingOrderPage() {
   if (lp || ls) return <LoadingState />;
   if (ep || es) return <ErrorState message={(ep || es)!.message} />;
   if (players!.length < 2) return <div><h1 className="text-xl font-bold mb-6">Batting Order</h1><EmptyState title="Not enough players" body="Add your squad first." /></div>;
-  if (rec.picks.length === 0) return <EmptyState title="Not enough players" body="Add at least 11 players." />;
+  if (!xiIds) {
+    const n = Math.min(11, players!.length);
+    return <PlayerPicker title="Batting Order — choose your Playing XI" subtitle="Pick the players who are batting in this match. The order is built from exactly this selection." players={players!} min={n} max={n} confirmLabel="Build batting order" onConfirm={(ids) => { setXiIds(ids); setOrder(null); }} />;
+  }
+  if (rec.picks.length === 0) return <EmptyState title="Not enough players" body="Pick a full XI to build an order." action={<button className="text-sm underline" onClick={() => setXiIds(null)}>Change XI</button>} />;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <div><h1 className="text-xl font-bold">Batting Order</h1><p className="text-sm text-[var(--color-ink-muted)] mt-0.5">Drag isn't required — use the arrows to reorder, keyboard-friendly.</p></div>
-        <button onClick={() => setOrder(null)} className="text-sm text-[var(--color-pitch-dark)] hover:underline">Reset to recommended</button>
+        <div className="flex gap-3"><button onClick={() => setXiIds(null)} className="text-sm text-[var(--color-pitch-dark)] hover:underline">Change XI</button><button onClick={() => setOrder(null)} className="text-sm text-[var(--color-pitch-dark)] hover:underline">Reset</button></div>
       </div>
       <p className="text-xs text-[var(--color-ink-faint)] mb-4">Order strength: <span className="tabular font-semibold text-[var(--color-ink)]">{orderScore(currentOrder, batSkill).toFixed(0)}</span></p>
       <Card className="p-2">

@@ -7,9 +7,18 @@ import { isBowlerWicket, type DismissalKind, type ExtraType } from './scoring';
 export interface BallRecord {
   overNumber: number; ballInOver: number; runsOffBat: number; extraType: ExtraType | 'none'; extraRuns: number;
   isWicket: boolean; wicketKind: DismissalKind | null; strikerId: string | null; nonStrikerId: string | null; bowlerId: string | null; dismissedPlayerId: string | null;
+  /** Fielding credit for this ball's dismissal (catch/run-out/stumping) — null for every other
+   *  dismissal kind and every non-wicket ball. */
+  fielderId?: string | null;
 }
 
-export interface AggregatedBatting { playerId: string; position: number; runs: number; balls: number; fours: number; sixes: number; status: 'not_out' | 'out' | 'did_not_bat'; dismissal: string | null }
+export interface AggregatedBatting {
+  playerId: string; position: number; runs: number; balls: number; fours: number; sixes: number; status: 'not_out' | 'out' | 'did_not_bat'; dismissal: string | null;
+  /** Raw dismissal facts, kept alongside the formatted `dismissal` text so a caller with
+   *  access to a name resolver (finalizeLiveScorecard, the live scoreboard) can render a full
+   *  "c Rohan b Arjun" / "run out (Rohan)" line instead of the short fallback label. */
+  dismissalKind: DismissalKind | null; dismissedByBowlerId: string | null; fielderId: string | null;
+}
 export interface AggregatedBowling { playerId: string; legalBalls: number; maidens: number; runs: number; wickets: number; wides: number; noBalls: number }
 
 const isLegal = (b: BallRecord) => b.extraType !== 'wide' && b.extraType !== 'no_ball';
@@ -18,8 +27,30 @@ const DISMISSAL_LABEL: Record<DismissalKind, string> = {
   obstructing: 'obstructing the field', handled_ball: 'handled the ball', hit_ball_twice: 'hit the ball twice',
   timed_out: 'timed out', retired_out: 'retired out',
 };
+/** Dismissal kinds where a fielder (catcher / run-out effecter / stumping keeper) gets credit. */
+const FIELDER_CREDITED: DismissalKind[] = ['caught', 'run_out', 'stumped'];
 
-export function aggregateBatting(balls: BallRecord[], squadOrder: string[]): AggregatedBatting[] {
+/** Turns the raw dismissal facts for one batter into the traditional cricket scorecard line —
+ *  "c Rohan b Arjun", "b Arjun", "lbw b Arjun", "st Rohan b Arjun", "run out (Rohan)" — when a
+ *  name resolver is supplied. Without one, falls back to the short legacy label (used by code
+ *  that only has ids, e.g. unit tests). */
+export function formatDismissal(row: Pick<AggregatedBatting, 'dismissalKind' | 'dismissedByBowlerId' | 'fielderId'>, nameOf?: (id: string) => string): string | null {
+  if (!row.dismissalKind) return null;
+  if (!nameOf) return DISMISSAL_LABEL[row.dismissalKind];
+  const bowler = row.dismissedByBowlerId ? nameOf(row.dismissedByBowlerId) : null;
+  const fielder = row.fielderId ? nameOf(row.fielderId) : null;
+  switch (row.dismissalKind) {
+    case 'caught': return fielder ? `c ${fielder} b ${bowler ?? '—'}` : `c & b ${bowler ?? '—'}`;
+    case 'stumped': return `st ${fielder ?? '—'} b ${bowler ?? '—'}`;
+    case 'run_out': return fielder ? `run out (${fielder})` : 'run out';
+    case 'bowled': return `b ${bowler ?? '—'}`;
+    case 'lbw': return `lbw b ${bowler ?? '—'}`;
+    case 'hit_wicket': return `hit wicket b ${bowler ?? '—'}`;
+    default: return DISMISSAL_LABEL[row.dismissalKind];
+  }
+}
+
+export function aggregateBatting(balls: BallRecord[], squadOrder: string[], nameOf?: (id: string) => string): AggregatedBatting[] {
   const firstAppearance = new Map<string, number>();
   balls.forEach((b, i) => {
     if (b.strikerId && !firstAppearance.has(b.strikerId)) firstAppearance.set(b.strikerId, i);
@@ -29,7 +60,8 @@ export function aggregateBatting(balls: BallRecord[], squadOrder: string[]): Agg
   const order = appeared.length ? appeared : squadOrder;
 
   return order.map((playerId, idx) => {
-    let runs = 0, faced = 0, fours = 0, sixes = 0, out = false, dismissal: string | null = null;
+    let runs = 0, faced = 0, fours = 0, sixes = 0, out = false;
+    let dismissalKind: DismissalKind | null = null, dismissedByBowlerId: string | null = null, fielderId: string | null = null;
     for (const b of balls) {
       if (b.strikerId === playerId) {
         if (b.extraType !== 'wide') faced += 1; // no-balls are faced, wides are not
@@ -39,12 +71,29 @@ export function aggregateBatting(balls: BallRecord[], squadOrder: string[]): Agg
       }
       if (b.isWicket && b.dismissedPlayerId === playerId) {
         out = true;
-        dismissal = b.wicketKind ? DISMISSAL_LABEL[b.wicketKind] : 'out';
+        dismissalKind = b.wicketKind;
+        dismissedByBowlerId = b.bowlerId;
+        fielderId = b.wicketKind && FIELDER_CREDITED.includes(b.wicketKind) ? (b.fielderId ?? null) : null;
       }
     }
     const didBat = faced > 0 || out;
-    return { playerId, position: idx + 1, runs, balls: faced, fours, sixes, status: !didBat ? 'did_not_bat' : out ? 'out' : 'not_out', dismissal };
+    const dismissal = dismissalKind ? formatDismissal({ dismissalKind, dismissedByBowlerId, fielderId }, nameOf) : null;
+    return { playerId, position: idx + 1, runs, balls: faced, fours, sixes, status: !didBat ? 'did_not_bat' : out ? 'out' : 'not_out', dismissal, dismissalKind, dismissedByBowlerId, fielderId };
   });
+}
+
+/** Catches / run-outs / stumpings taken by each fielder across a set of balls — the data
+ *  behind fielding credit on the Leaderboard. */
+export function aggregateFielding(balls: BallRecord[]): Record<string, { catches: number; runOuts: number; stumpings: number }> {
+  const out: Record<string, { catches: number; runOuts: number; stumpings: number }> = {};
+  for (const b of balls) {
+    if (!b.isWicket || !b.fielderId || !b.wicketKind || !FIELDER_CREDITED.includes(b.wicketKind)) continue;
+    const row = out[b.fielderId] ?? (out[b.fielderId] = { catches: 0, runOuts: 0, stumpings: 0 });
+    if (b.wicketKind === 'caught') row.catches += 1;
+    else if (b.wicketKind === 'run_out') row.runOuts += 1;
+    else if (b.wicketKind === 'stumped') row.stumpings += 1;
+  }
+  return out;
 }
 
 export function aggregateBowling(balls: BallRecord[]): AggregatedBowling[] {

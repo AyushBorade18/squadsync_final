@@ -210,3 +210,18 @@ requests, Playing XI, toss, and untracked-opponent columns/tables.
 3. **Double-check the env vars on Vercel** (Project → Settings → Environment Variables) point
    at the same Supabase project you just ran the SQL against — a mismatch here looks exactly
    like an RLS bug (silent empty data) but isn't one.
+
+
+## Phase 12 update
+- Fixed `bowling_style_type` enum crash on the opposing Playing XI (batters now store NULL; others 'pace').
+- Opposing XI form: name field has a full-width row; Batter/Bowler/All-rounder toggle sits below it.
+- Live scoring header was white-on-white (Card background override) — fixed, and now shows a live scorecard (batters, bowler figures, last wicket).
+- Fielder credit: caught / stumped / run out now ask "by whom"; shown on scorecards ("c Rohan b Arjun") and counted on the Leaderboard.
+- Leaderboard: Overall / Batting / Bowling / Fielding tabs.
+- Batting Order and Bowling Planner first ask which XI / bowlers you are using.
+- Analytics: KPI tiles, 8 charts, batting, bowling and match-by-match tables.
+- Live polling on matches, players, playing XI and requests — no more switching accounts to "unstick" a match.
+- Match-request bell + badge (desktop sidebar, mobile header, More drawer).
+- Pinch-zoom disabled; mobile Matches cards wrap; installed app now skips login when a session exists and updates itself on each deploy.
+- Scorecard names now come embedded with the scorecard (no more "Unknown" for the other team).
+**Re-run `sql/phase4_migration.sql` in the Supabase SQL Editor** (adds `live_balls.fielder_id` and a players read policy).

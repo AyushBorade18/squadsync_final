@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { Button } from '../../components/primitives';
 
 export function LoginPage({ role }: { role: 'player' | 'coach' }) {
-  const { signUp, logIn } = useAuth();
+  const { signUp, logIn, profile, loading } = useAuth();
   const nav = useNavigate();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [name, setName] = useState('');
@@ -14,6 +14,8 @@ export function LoginPage({ role }: { role: 'player' | 'coach' }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+
+  if (!loading && profile) return <Navigate to={profile.role === 'coach' ? '/coach' : '/player'} replace />;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -39,8 +39,8 @@ const mapMatch = (m: any, viewerTeamId?: string): Match => {
     opponentBowlerType: m.opponent_bowler_type ?? null,
   };
 };
-const mapBat = (b: any): BattingPerformance => ({ id: b.id, matchId: b.match_id, playerId: b.player_id, innings: b.innings, position: b.position, runs: b.runs, balls: b.balls, fours: b.fours, sixes: b.sixes, status: b.status, dismissal: b.dismissal });
-const mapBowl = (b: any): BowlingPerformance => ({ id: b.id, matchId: b.match_id, playerId: b.player_id, innings: b.innings, legalBalls: b.legal_balls, maidens: b.maidens, runs: b.runs, wickets: b.wickets, wides: b.wides, noBalls: b.no_balls });
+const mapBat = (b: any): BattingPerformance => ({ id: b.id, matchId: b.match_id, playerId: b.player_id, innings: b.innings, position: b.position, runs: b.runs, balls: b.balls, fours: b.fours, sixes: b.sixes, status: b.status, dismissal: b.dismissal, playerName: b.player?.name });
+const mapBowl = (b: any): BowlingPerformance => ({ id: b.id, matchId: b.match_id, playerId: b.player_id, innings: b.innings, legalBalls: b.legal_balls, maidens: b.maidens, runs: b.runs, wickets: b.wickets, wides: b.wides, noBalls: b.no_balls, playerName: b.player?.name });
 const mapTournament = (t: any): Tournament => ({ id: t.id, name: t.name, format: t.format, teamIds: [], teamNames: {}, ownerProfileId: t.owner_profile_id, startDate: t.start_date });
 const mapOpponentProfile = (o: any, opponentName: string): OpponentProfile => ({ id: o.id, ownerTeamId: o.owner_team_id, opponentTeamId: o.opponent_team_id, opponentName, bowlingTendency: o.bowling_tendency, battingTendency: o.batting_tendency, notes: o.notes ?? '', updatedAt: o.updated_at });
 const mapMatchRequest = (r: any, fromName: string, toName: string): MatchRequest => ({ id: r.id, fromTeamId: r.from_team_id, fromTeamName: fromName, toTeamId: r.to_team_id, toTeamName: toName, proposedDate: r.proposed_date, proposedVenue: r.proposed_venue, format: r.format, customOvers: r.custom_overs ?? null, message: r.message ?? '', status: r.status, resultingMatchId: r.resulting_match_id, createdAt: r.created_at });
@@ -52,7 +52,7 @@ const mapLiveInnings = (i: any): LiveInningsRow => ({
   awaitingNewBatsman: i.awaiting_new_batsman ?? false, awaitingNewBowler: i.awaiting_new_bowler ?? false, completed: i.completed ?? false, endReason: i.end_reason, target: i.target,
 });
 const mapPlayingXI = (x: any): PlayingXIEntry => ({ id: x.id, matchId: x.match_id, teamId: x.team_id, playerId: x.player_id, battingOrder: x.batting_order, isCaptain: x.is_captain, isKeeper: x.is_keeper });
-const mapLiveBall = (b: any): LiveBallRow => ({ id: b.id, inningsId: b.innings_id, overNumber: b.over_number, ballInOver: b.ball_in_over, runsOffBat: b.runs_off_bat, extraType: b.extra_type, extraRuns: b.extra_runs, shotZone: b.shot_zone, isWicket: b.is_wicket, wicketKind: b.wicket_kind, strikerId: b.striker_id, nonStrikerId: b.non_striker_id, bowlerId: b.bowler_id, dismissedPlayerId: b.dismissed_player_id });
+const mapLiveBall = (b: any): LiveBallRow => ({ id: b.id, inningsId: b.innings_id, overNumber: b.over_number, ballInOver: b.ball_in_over, runsOffBat: b.runs_off_bat, extraType: b.extra_type, extraRuns: b.extra_runs, shotZone: b.shot_zone, isWicket: b.is_wicket, wicketKind: b.wicket_kind, strikerId: b.striker_id, nonStrikerId: b.non_striker_id, bowlerId: b.bowler_id, dismissedPlayerId: b.dismissed_player_id, fielderId: b.fielder_id ?? null });
 const mapLiveOver = (o: any): LiveOverRow => ({ id: o.id, inningsId: o.innings_id, overNumber: o.over_number, bowlerId: o.bowler_id, runsConceded: o.runs_conceded, wicketsTaken: o.wickets_taken });
 
 function raise(context: string, error: { message: string } | null) { if (error) throw new Error(`${context}: ${error.message}`); }
@@ -162,8 +162,12 @@ export async function setOpponentBowler(matchId: string, name: string, type: 'pa
  *  opponent is selectable in every picker exactly like a tracked one (same players table,
  *  same playing_xi rows) — no separate "type the bowler's name" fallback needed. */
 export async function submitUntrackedOpponentXI(matchId: string, opponentTeamId: string, entries: { name: string; category: 'batter' | 'bowler' | 'all_rounder'; isKeeper: boolean }[]) {
+  // bowling_style_type is a Postgres enum that only accepts 'pace' | 'spin' (see BowlingStyle
+  // in algorithms/selection.ts) — it has no 'none' value. A pure batter has NO bowling style at
+  // all, which the column models as NULL, not the string "none" (that previously crashed every
+  // untracked-opponent XI submission with "invalid input value for enum bowling_style_type").
   const { data: inserted, error } = await supabase.from('players').insert(
-    entries.map((e) => ({ team_id: opponentTeamId, name: e.name, player_role: e.category, batting_style: 'right_hand', bowling_style: e.category === 'batter' ? 'none' : 'medium', is_keeper: e.isKeeper })),
+    entries.map((e) => ({ team_id: opponentTeamId, name: e.name, player_role: e.category, batting_style: 'right_hand', bowling_style: e.category === 'batter' ? null : 'pace', is_keeper: e.isKeeper })),
   ).select();
   raise('Adding the opposing Playing XI', error);
   await submitPlayingXI(matchId, opponentTeamId, (inserted ?? []).map((p: any, i: number) => ({ playerId: p.id as string, battingOrder: i + 1, isCaptain: false, isKeeper: !!p.is_keeper })));
@@ -205,12 +209,16 @@ export async function submitPlayingXI(matchId: string, teamId: string, entries: 
 }
 
 export async function fetchScorecard(matchId: string): Promise<{ batting: BattingPerformance[]; bowling: BowlingPerformance[] }> {
-  const [{ data: bat, error: e1 }, { data: bowl, error: e2 }] = await Promise.all([
-    supabase.from('batting_performances').select('*').eq('match_id', matchId).order('position'),
-    supabase.from('bowling_performances').select('*').eq('match_id', matchId),
+  // Embeds the player's name (so a scorecard doesn't depend on a separate roster lookup), but
+  // falls back to the plain query if that embed isn't available in this database.
+  const run = (cols: string) => Promise.all([
+    supabase.from('batting_performances').select(cols).eq('match_id', matchId).order('position'),
+    supabase.from('bowling_performances').select(cols).eq('match_id', matchId),
   ]);
+  let [{ data: bat, error: e1 }, { data: bowl, error: e2 }] = await run('*, player:player_id(name)');
+  if (e1 || e2) [{ data: bat, error: e1 }, { data: bowl, error: e2 }] = await run('*');
   raise('Loading scorecard (batting)', e1); raise('Loading scorecard (bowling)', e2);
-  return { batting: (bat ?? []).map(mapBat), bowling: (bowl ?? []).map(mapBowl) };
+  return { batting: ((bat ?? []) as any[]).map(mapBat), bowling: ((bowl ?? []) as any[]).map(mapBowl) };
 }
 
 export async function saveScorecard(
@@ -386,7 +394,7 @@ export async function fetchInningsOvers(inningsId: string): Promise<LiveOverRow[
  *  when an over just completed or the innings ended mid-over. */
 export async function recordDelivery(args: {
   inningsId: string; ballInOver: number; delivery: Delivery; shotZone: string | null;
-  dismissedPlayerId: string | null; strikerId: string | null; nonStrikerId: string | null; bowlerId: string | null;
+  dismissedPlayerId: string | null; fielderId: string | null; strikerId: string | null; nonStrikerId: string | null; bowlerId: string | null;
   nextState: {
     runs: number; wickets: number; legalBalls: number; freeHit: boolean;
     strikerId: string | null; nonStrikerId: string | null; bowlerId: string | null; lastOverBowlerId: string | null;
@@ -400,6 +408,7 @@ export async function recordDelivery(args: {
     runs_off_bat: args.delivery.runsOffBat, extra_type: args.delivery.extra?.type ?? 'none', extra_runs: args.delivery.extra?.runs ?? 0,
     shot_zone: args.shotZone, is_wicket: !!args.delivery.wicket, wicket_kind: args.delivery.wicket?.kind ?? null,
     striker_id: args.strikerId, non_striker_id: args.nonStrikerId, bowler_id: args.bowlerId, dismissed_player_id: args.dismissedPlayerId,
+    fielder_id: args.fielderId,
   });
   raise('Recording delivery', ballErr);
 
@@ -558,17 +567,41 @@ export async function acceptMatchRequest(request: MatchRequest) {
 /** Called once both innings of a live-scored match are complete: folds every ball into
  *  batting/bowling scorecard rows (see scorecardAggregation.ts) and saves + completes the
  *  match in one go, the same place a manually-entered scorecard lands. */
-export async function finalizeLiveScorecard(matchId: string, innings: { inningsNumber: 1 | 2; battingTeamId: string; squadOrder: string[] }[], result: string) {
+export async function finalizeLiveScorecard(matchId: string, innings: { inningsNumber: 1 | 2; battingTeamId: string; bowlingTeamId: string; squadOrder: string[] }[], result: string) {
   const { aggregateBatting, aggregateBowling } = await import('../algorithms/scorecardAggregation');
+  // Fielder credit (catch/run-out/stumping) was captured as a player id during live scoring —
+  // resolve every team's roster once here so the saved dismissal text reads "c Rohan b Arjun"
+  // instead of a bare id, on every scorecard that reads batting_performances.dismissal.
+  const teamIds = [...new Set(innings.flatMap((i) => [i.battingTeamId, i.bowlingTeamId]))];
+  const rosters = await Promise.all(teamIds.map((tid) => fetchTeamPlayers(tid)));
+  const nameById = new Map<string, string>();
+  rosters.flat().forEach((p) => nameById.set(p.id, p.name));
+  const nameOf = (id: string) => nameById.get(id) ?? 'Unknown';
+
   const bat: Omit<BattingPerformance, 'id' | 'matchId'>[] = [];
   const bowl: Omit<BowlingPerformance, 'id' | 'matchId'>[] = [];
   for (const inn of innings) {
     const rows = await fetchLiveInnings(matchId);
     const row = rows.find((r) => r.inningsNumber === inn.inningsNumber);
     if (!row) continue;
-    const balls = (await fetchInningsBalls(row.id)).map((b) => ({ overNumber: b.overNumber, ballInOver: b.ballInOver, runsOffBat: b.runsOffBat, extraType: b.extraType, extraRuns: b.extraRuns, isWicket: b.isWicket, wicketKind: b.wicketKind, strikerId: b.strikerId, nonStrikerId: b.nonStrikerId, bowlerId: b.bowlerId, dismissedPlayerId: b.dismissedPlayerId }));
-    for (const b of aggregateBatting(balls, inn.squadOrder)) bat.push({ playerId: b.playerId, innings: inn.inningsNumber, position: b.position, runs: b.runs, balls: b.balls, fours: b.fours, sixes: b.sixes, status: b.status, dismissal: b.dismissal });
+    const balls = (await fetchInningsBalls(row.id)).map((b) => ({ overNumber: b.overNumber, ballInOver: b.ballInOver, runsOffBat: b.runsOffBat, extraType: b.extraType, extraRuns: b.extraRuns, isWicket: b.isWicket, wicketKind: b.wicketKind, strikerId: b.strikerId, nonStrikerId: b.nonStrikerId, bowlerId: b.bowlerId, dismissedPlayerId: b.dismissedPlayerId, fielderId: b.fielderId }));
+    for (const b of aggregateBatting(balls, inn.squadOrder, nameOf)) bat.push({ playerId: b.playerId, innings: inn.inningsNumber, position: b.position, runs: b.runs, balls: b.balls, fours: b.fours, sixes: b.sixes, status: b.status, dismissal: b.dismissal });
     for (const b of aggregateBowling(balls)) bowl.push({ playerId: b.playerId, innings: inn.inningsNumber, legalBalls: b.legalBalls, maidens: b.maidens, runs: b.runs, wickets: b.wickets, wides: b.wides, noBalls: b.noBalls });
   }
   await saveScorecard(matchId, bat, bowl, result);
+}
+
+/** Catches / run-outs / stumpings credited to each of this team's players, across every match
+ *  they've played — the fielding half of the Leaderboard (alongside batting/bowling from
+ *  fetchTeamStats). Derived straight from live_balls.fielder_id rather than a separate table,
+ *  since every completed match's ball-by-ball log is kept. */
+export async function fetchFieldingStats(teamId: string): Promise<Record<string, { catches: number; runOuts: number; stumpings: number }>> {
+  const { data: inningsRows, error: e1 } = await supabase.from('live_innings').select('id').eq('bowling_team_id', teamId);
+  raise('Loading fielding stats', e1);
+  const inningsIds = (inningsRows ?? []).map((r: any) => r.id as string);
+  if (inningsIds.length === 0) return {};
+  const { data: balls, error: e2 } = await supabase.from('live_balls').select('wicket_kind, fielder_id').in('innings_id', inningsIds).not('fielder_id', 'is', null);
+  raise('Loading fielding stats', e2);
+  const { aggregateFielding } = await import('../algorithms/scorecardAggregation');
+  return aggregateFielding((balls ?? []).map((b: any) => ({ overNumber: 0, ballInOver: 0, runsOffBat: 0, extraType: 'none' as const, extraRuns: 0, isWicket: true, wicketKind: b.wicket_kind, strikerId: null, nonStrikerId: null, bowlerId: null, dismissedPlayerId: null, fielderId: b.fielder_id })));
 }

@@ -8,7 +8,7 @@ import { recommendBattingOrder, moveInOrder, orderScore } from '../battingOrder'
 import { planBowling, suggestNextBowler } from '../bowlingPlanner';
 import { buildPlayerGraph, edgeWeight, degree, strongestLinks } from '../graph';
 import { generateBracket, roundRobin, seedOrder, choose } from '../tournament';
-import { aggregateBatting, aggregateBowling } from '../scorecardAggregation';
+import { aggregateBatting, aggregateBowling, aggregateFielding, formatDismissal } from '../scorecardAggregation';
 import { shotToPoint, zoneBreakdown } from '../wagonWheel';
 import { suitabilityScore, skillsOf } from '../selection';
 
@@ -328,5 +328,21 @@ describe('scorecard aggregation (post-order over the ball tree)', () => {
     expect(x.wickets).toBe(1);
     expect(x.wides).toBe(1);
     expect(x.runs).toBe(4 + 1 + 1 + 0 + 6 + 0);
+  });
+});
+
+describe('fielder credit', () => {
+  const ball = (kind: any, fielderId: string | null, dismissed = 'B') => ({ overNumber: 1, ballInOver: 1, runsOffBat: 0, extraType: 'none' as const, extraRuns: 0, isWicket: true, wicketKind: kind, strikerId: dismissed, nonStrikerId: 'A', bowlerId: 'X', dismissedPlayerId: dismissed, fielderId });
+  it('formats catches, stumpings and run-outs with names', () => {
+    const nameOf = (id: string) => ({ F: 'Rohan', X: 'Arjun' } as Record<string, string>)[id] ?? id;
+    expect(aggregateBatting([ball('caught', 'F')], ['B'], nameOf)[0].dismissal).toBe('c Rohan b Arjun');
+    expect(aggregateBatting([ball('stumped', 'F')], ['B'], nameOf)[0].dismissal).toBe('st Rohan b Arjun');
+    expect(aggregateBatting([ball('run_out', 'F')], ['B'], nameOf)[0].dismissal).toBe('run out (Rohan)');
+    expect(formatDismissal({ dismissalKind: 'bowled', dismissedByBowlerId: 'X', fielderId: null }, nameOf)).toBe('b Arjun');
+  });
+  it('credits fielders only for caught / run out / stumped', () => {
+    const f = aggregateFielding([ball('caught', 'F'), ball('caught', 'F'), ball('stumped', 'K'), ball('run_out', 'F'), ball('bowled', 'F')]);
+    expect(f.F).toEqual({ catches: 2, runOuts: 1, stumpings: 0 });
+    expect(f.K.stumpings).toBe(1);
   });
 });

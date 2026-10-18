@@ -1,7 +1,13 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
+import { useAuth } from '../../lib/auth';
 import { Shield, User } from 'lucide-react';
 
 export function Landing() {
+  const { profile, loading } = useAuth();
+  // Already signed in (session persists in localStorage) -> straight to the dashboard, so an
+  // installed app never asks for credentials again until the user explicitly logs out.
+  if (loading) return null;
+  if (profile) return <Navigate to={profile.role === 'coach' ? '/coach' : '/player'} replace />;
   return (
     <div className="min-h-screen bg-[var(--color-paper)] node-field flex flex-col items-center justify-center px-4 text-center">
       <div className="flex items-center gap-2 mb-3">

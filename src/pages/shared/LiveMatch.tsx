@@ -10,6 +10,7 @@ import { processDelivery, setNewBatsman, setNewBowler, type LiveInningsState } f
 import type { Delivery, DismissalKind, ExtraType } from '../../algorithms/scoring';
 import { suggestNextBowler } from '../../algorithms/bowlingPlanner';
 import { SHOT_ZONES, shotToPoint, type ShotZone, type ShotEvent } from '../../algorithms/wagonWheel';
+import { aggregateBatting, aggregateBowling, formatDismissal } from '../../algorithms/scorecardAggregation';
 import type { Player } from '../../types/domain';
 
 type XICategory = 'batter' | 'bowler' | 'all_rounder';
@@ -112,19 +113,28 @@ function UntrackedOpponentXISetup({ matchId, opponentTeamId, opponentName }: { m
       <h1 className="text-xl font-bold mb-1">{opponentName}'s Playing XI</h1>
       <p className="text-sm text-[var(--color-ink-muted)] mb-6">{opponentName} doesn't have a SquadSync account, so enter their lineup here — name and role for each player — so they can be selected for batting and bowling throughout live scoring.</p>
       <Card className="p-5">
-        <div className="space-y-2">
+        <div className="space-y-3">
           {rows.map((r, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              <span className="w-5 text-xs text-[var(--color-ink-faint)] tabular">{i + 1}</span>
-              <input className="input flex-1" placeholder={`Player ${i + 1} name`} value={r.name} onChange={(e) => update(i, { name: e.target.value })} />
-              <select className="input w-36" value={r.category} onChange={(e) => update(i, { category: e.target.value as XICategory })}>
-                <option value="batter">Batter</option>
-                <option value="bowler">Bowler</option>
-                <option value="all_rounder">All-rounder</option>
-              </select>
-              <label className="flex items-center gap-1 text-xs text-[var(--color-ink-muted)] whitespace-nowrap">
-                <input type="checkbox" checked={r.isKeeper} onChange={(e) => update(i, { isKeeper: e.target.checked })} /> WK
-              </label>
+            <div key={i} className="rounded-[var(--radius-sm)] border border-[var(--color-line)] p-2.5">
+              {/* Name gets its own full-width row — typing room was the whole complaint, so
+                  nothing shares this row with it. Category + WK move to a second row below. */}
+              <div className="flex items-center gap-2">
+                <span className="w-5 shrink-0 text-xs text-[var(--color-ink-faint)] tabular">{i + 1}</span>
+                <input className="input flex-1" placeholder={`Player ${i + 1} name`} value={r.name} onChange={(e) => update(i, { name: e.target.value })} />
+              </div>
+              <div className="flex items-center gap-2 mt-2 pl-7">
+                <div className="flex rounded-[var(--radius-sm)] bg-black/[0.04] p-0.5 text-xs font-medium">
+                  {(['batter', 'bowler', 'all_rounder'] as XICategory[]).map((cat) => (
+                    <button key={cat} type="button" onClick={() => update(i, { category: cat })}
+                      className={`px-2.5 py-1.5 rounded-[5px] transition-colors ${r.category === cat ? 'bg-[var(--color-pitch)] text-white' : 'text-[var(--color-ink-muted)]'}`}>
+                      {cat === 'batter' ? 'Batter' : cat === 'bowler' ? 'Bowler' : 'All-rounder'}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1 text-xs text-[var(--color-ink-muted)] whitespace-nowrap ml-auto">
+                  <input type="checkbox" checked={r.isKeeper} onChange={(e) => update(i, { isKeeper: e.target.checked })} /> WK
+                </label>
+              </div>
             </div>
           ))}
         </div>
@@ -472,6 +482,14 @@ function LiveCommandCenter({ matchId, teamId, teamShort, opponent, format, custo
   const battingSideLabel = current.battingTeamId === teamId ? teamShort : opponent;
   const bowlingSideLabel = current.bowlingTeamId === teamId ? teamShort : opponent;
   const lastWicketBall = [...(balls ?? [])].reverse().find((b) => b.isWicket);
+  // The live scorecard for the batters/bowler currently out in the middle — folded from the
+  // same ball-by-ball log the post-match scorecard is built from (algorithms/scorecardAggregation),
+  // so "runs/balls" here always matches what the finished scorecard will show.
+  const battingFigures = useMemo(() => aggregateBatting(balls ?? [], battingRoster.map((p) => p.id), nameOf), [balls, battingRoster]);
+  const bowlingFigures = useMemo(() => aggregateBowling(balls ?? []), [balls]);
+  const strikerFig = battingFigures.find((f) => f.playerId === current.strikerId);
+  const nonStrikerFig = battingFigures.find((f) => f.playerId === current.nonStrikerId);
+  const bowlerFig = bowlingFigures.find((f) => f.playerId === current.currentBowlerId);
 
   const rr = runRate(current.runs, current.legalBalls);
   const req = current.target !== null ? requiredRunRate(current.target, current.runs, rules.oversPerInnings! * rules.ballsPerOver - current.legalBalls) : null;
@@ -483,6 +501,7 @@ function LiveCommandCenter({ matchId, teamId, teamShort, opponent, format, custo
       await recordDelivery.mutateAsync({
         inningsId: current.id, ballInOver: thisOverBalls.length + 1, delivery, shotZone: zone,
         dismissedPlayerId: delivery.wicket ? (dismissedOverride ?? result.state.dismissedPlayerId) : null,
+        fielderId: delivery.wicket ? (delivery.wicket.fielderId ?? null) : null,
         strikerId: state.strikerId, nonStrikerId: state.nonStrikerId, bowlerId: state.bowlerId,
         nextState: result.state, finalizedOver: result.finalizedOver, overNumberForBall: current.currentOverNumber,
       });
@@ -509,7 +528,7 @@ function LiveCommandCenter({ matchId, teamId, teamShort, opponent, format, custo
       // Each innings' batting figures are aggregated against THAT innings' batting team's own
       // roster — not always "our" roster — so a tracked opponent's batting card is complete too.
       const squadFor = (tid: string) => (tid === teamId ? list : oppList).map((p) => p.id);
-      const inningsArg = (inningsRows ?? []).map((r) => ({ inningsNumber: r.inningsNumber, battingTeamId: r.battingTeamId, squadOrder: squadFor(r.battingTeamId) }));
+      const inningsArg = (inningsRows ?? []).map((r) => ({ inningsNumber: r.inningsNumber, battingTeamId: r.battingTeamId, bowlingTeamId: r.bowlingTeamId, squadOrder: squadFor(r.battingTeamId) }));
       const result = `${current.inningsNumber === 2 ? (current.runs >= (current.target ?? Infinity) ? (current.battingTeamId === teamId ? 'Won' : 'Lost') : current.battingTeamId === teamId ? 'Lost' : 'Won') : 'Match'} — recorded from live scoring`;
       await finalize.mutateAsync([matchId, inningsArg, result]);
     } finally { setFinishing(false); }
@@ -568,8 +587,12 @@ function LiveCommandCenter({ matchId, teamId, teamShort, opponent, format, custo
         />
       )}
 
-      <Card className="p-6 bg-[var(--color-pitch-dark)] text-white border-0 mb-4">
-        <p className="text-sm text-white/70">Innings {current.inningsNumber}</p>
+      {/* A plain div, not <Card> — Card hardcodes a white bg-[var(--color-surface)] class that
+          was winning the CSS cascade over this card's own dark-green override (equal
+          specificity, declared earlier in the compiled stylesheet), which left this entire
+          block rendering white-background-with-white-text: a "blank" card. */}
+      <div className="p-6 rounded-[var(--radius-md)] bg-[var(--color-pitch-dark)] text-white mb-4">
+        <p className="text-sm text-white/70">Innings {current.inningsNumber} — {battingSideLabel}</p>
         <div className="flex items-end gap-3 mt-1">
           <NumberTicker value={current.runs} className="text-5xl font-bold" />
           <span className="text-3xl font-bold text-white/50">/</span>
@@ -583,7 +606,20 @@ function LiveCommandCenter({ matchId, teamId, teamShort, opponent, format, custo
           {current.freeHit && <span className="text-[var(--color-gold)] font-semibold">FREE HIT</span>}
         </div>
         {current.completed && <p className="mt-3 text-sm font-semibold text-[var(--color-gold)]">Innings complete — {current.endReason?.replace('_', ' ')}</p>}
-      </Card>
+
+        {/* Live scorecard — the two batters out in the middle and the current bowler, folded
+            live from the same ball-by-ball log the finished scorecard uses. */}
+        <div className="mt-5 pt-4 border-t border-white/15 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+          <div className="flex justify-between"><span className="font-medium">{nameOf(current.strikerId)} <span className="text-[var(--color-gold)]">*</span></span><span className="tabular text-white/80">{strikerFig ? `${strikerFig.runs} (${strikerFig.balls})` : '—'}</span></div>
+          <div className="flex justify-between"><span className="font-medium">{nameOf(current.currentBowlerId)}</span><span className="tabular text-white/80">{bowlerFig ? `${formatOvers(bowlerFig.legalBalls)}-${bowlerFig.runs}-${bowlerFig.wickets}` : '—'}</span></div>
+          <div className="flex justify-between"><span>{nameOf(current.nonStrikerId)}</span><span className="tabular text-white/80">{nonStrikerFig ? `${nonStrikerFig.runs} (${nonStrikerFig.balls})` : '—'}</span></div>
+        </div>
+        {lastWicketBall && (
+          <p className="mt-2 text-xs text-white/70">
+            Last wicket: {nameOf(lastWicketBall.dismissedPlayerId)} {formatDismissal({ dismissalKind: lastWicketBall.wicketKind, dismissedByBowlerId: lastWicketBall.bowlerId, fielderId: lastWicketBall.fielderId }, nameOf)}
+          </p>
+        )}
+      </div>
 
       <div className="grid md:grid-cols-3 gap-4 mb-4">
         {tracksBatsmanNow && (
@@ -629,7 +665,7 @@ function LiveCommandCenter({ matchId, teamId, teamShort, opponent, format, custo
           ) : tracksBowlerNow && current.awaitingNewBowler ? (
             <NextBowlerPanel players={bowlingRoster} overs={overs ?? []} lastOverBowlerId={current.lastOverBowlerId} maxOversPerBowler={rules.maxOversPerBowler} value={newBowlerId} onChange={setNewBowlerId} onConfirm={confirmBowler} pending={setBowlerMut.isPending} />
           ) : (
-            <BallEntry onSubmit={submit} freeHit={current.freeHit} zone={zone} onZone={setZone} pending={recordDelivery.isPending || fetchingBalls} showWagonWheel={tracksBatsmanNow} />
+            <BallEntry onSubmit={submit} freeHit={current.freeHit} zone={zone} onZone={setZone} pending={recordDelivery.isPending || fetchingBalls} showWagonWheel={tracksBatsmanNow} fieldingRoster={bowlingRoster} />
           )}
           {err && <p className="text-sm text-[var(--color-leather)] mt-3">{err}</p>}
         </>
@@ -750,17 +786,33 @@ const DISMISSAL_KINDS: { kind: DismissalKind; label: string }[] = [
   { kind: 'obstructing', label: 'Obstructing the field' }, { kind: 'handled_ball', label: 'Handled the ball' },
 ];
 
-function BallEntry({ onSubmit, freeHit, zone, onZone, pending, showWagonWheel }: { onSubmit: (d: Delivery, dismissed?: string) => void; freeHit: boolean; zone: ShotZone | null; onZone: (z: ShotZone | null) => void; pending: boolean; showWagonWheel: boolean }) {
+const FIELDER_CREDIT_KINDS: DismissalKind[] = ['caught', 'run_out', 'stumped'];
+
+function BallEntry({ onSubmit, freeHit, zone, onZone, pending, showWagonWheel, fieldingRoster }: { onSubmit: (d: Delivery, dismissed?: string) => void; freeHit: boolean; zone: ShotZone | null; onZone: (z: ShotZone | null) => void; pending: boolean; showWagonWheel: boolean; fieldingRoster: Player[] }) {
   const [showExtras, setShowExtras] = useState(false);
   const [showWicket, setShowWicket] = useState(false);
   const [extraKind, setExtraKind] = useState<Exclude<ExtraType, 'penalty'>>('bye');
   const [extraRuns, setExtraRuns] = useState(1);
+  // Caught / run out / stumped need a fielder picked before the wicket is confirmed — every
+  // other dismissal kind (bowled, lbw, hit wicket, …) has no fielder credit and fires straight
+  // away like before.
+  const [pendingKind, setPendingKind] = useState<DismissalKind | null>(null);
+  const [fielderId, setFielderId] = useState('');
 
   const hitRuns = (runs: number) => onSubmit({ runsOffBat: runs });
   const hitWide = () => onSubmit({ runsOffBat: 0, extra: { type: 'wide', runs: 1 } });
   const hitNoBall = () => onSubmit({ runsOffBat: 0, extra: { type: 'no_ball', runs: 1 } });
   const hitExtra = () => { onSubmit({ runsOffBat: 0, extra: { type: extraKind, runs: extraRuns } }); setShowExtras(false); };
-  const hitWicket = (kind: DismissalKind) => { onSubmit({ runsOffBat: 0, wicket: { kind } }); setShowWicket(false); };
+  const hitWicket = (kind: DismissalKind) => {
+    if (FIELDER_CREDIT_KINDS.includes(kind) && fieldingRoster.length > 0) { setPendingKind(kind); return; }
+    onSubmit({ runsOffBat: 0, wicket: { kind } });
+    setShowWicket(false);
+  };
+  const confirmFielderWicket = () => {
+    if (!pendingKind) return;
+    onSubmit({ runsOffBat: 0, wicket: { kind: pendingKind, fielderId: fielderId || null } });
+    setShowWicket(false); setPendingKind(null); setFielderId('');
+  };
 
   return (
     <Card className="p-4">
@@ -801,9 +853,24 @@ function BallEntry({ onSubmit, freeHit, zone, onZone, pending, showWagonWheel }:
         </div>
       )}
 
-      {showWicket && (
+      {showWicket && !pendingKind && (
         <div className="flex flex-wrap gap-2 mt-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-leather-soft)]">
           {DISMISSAL_KINDS.map((d) => <Button key={d.kind} variant="secondary" onClick={() => hitWicket(d.kind)}>{d.label}</Button>)}
+        </div>
+      )}
+      {showWicket && pendingKind && (
+        <div className="mt-3 p-3 rounded-[var(--radius-sm)] bg-[var(--color-leather-soft)]">
+          <p className="text-sm font-semibold mb-2">
+            {pendingKind === 'caught' ? 'Caught by' : pendingKind === 'stumped' ? 'Stumped by' : 'Run out by'} — who gets fielding credit?
+          </p>
+          <div className="flex gap-2">
+            <select className="input" value={fielderId} onChange={(e) => setFielderId(e.target.value)}>
+              <option value="">Not sure / skip</option>
+              {fieldingRoster.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <Button onClick={confirmFielderWicket}>Confirm</Button>
+            <Button variant="ghost" onClick={() => { setPendingKind(null); setFielderId(''); }}>Back</Button>
+          </div>
         </div>
       )}
     </Card>

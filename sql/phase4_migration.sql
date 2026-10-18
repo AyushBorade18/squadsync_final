@@ -553,9 +553,43 @@ drop policy if exists "live_innings_select_either_side" on live_innings;
 create policy "live_innings_select_either_side" on live_innings
   for select using (is_member_of_team(batting_team_id) or is_member_of_team(bowling_team_id));
 
+-- ============================================================================
+-- Phase 11 — fielder credit (catch by / run out by / stumped by), and the policy work
+-- needed for the mobile app's redesigned untracked-opponent XI form and dynamic live
+-- scoring. Safe to re-run; every statement is idempotent.
+-- ============================================================================
+
+-- Who gets credit as the catcher / the fielder who ran the batter out / the keeper who
+-- stumped them. Only ever set for caught/run_out/stumped (enforced client-side); null for
+-- every other dismissal kind and every non-wicket ball.
+alter table live_balls add column if not exists fielder_id uuid references players(id);
+
+-- bowling_style_type previously rejected the literal string "none" (used for a pure batter
+-- entered through the untracked-opponent Playing XI form) — that column is nullable and
+-- should hold NULL for "no bowling style", not an invalid enum string. Nothing to migrate on
+-- existing rows (the bad insert always failed before any row was written), this just
+-- documents the fix living in submitUntrackedOpponentXI (src/lib/repo.ts).
+
 -- The untracked-opponent Playing XI form captures a WHOLE lineup in one submit; if the
 -- player INSERT above succeeds but the match has no opponent_team_id row visible yet (edge
 -- case: match row fetched before this team's own join resolved), the playing_xi insert that
 -- immediately follows in the same request needs the same "either side" latitude as matches
 -- generally get, which it already has from Phase 5 (playing_xi_write_own_coach checks
 -- is_coach_of_team(team_id) directly, not via a match join, so it's unaffected by this).
+
+-- Phase 11b: a player row is readable by anyone who can see a scorecard that includes them,
+-- so names never fall back to "Unknown" for the other team's coach.
+drop policy if exists "players_select_via_performances" on players;
+create policy "players_select_via_performances" on players
+  for select using (
+    exists (
+      select 1 from batting_performances bp join matches m on m.id = bp.match_id
+      where bp.player_id = players.id
+        and (is_member_of_team(m.team_id) or (m.opponent_team_id is not null and is_member_of_team(m.opponent_team_id)))
+    )
+    or exists (
+      select 1 from bowling_performances bw join matches m on m.id = bw.match_id
+      where bw.player_id = players.id
+        and (is_member_of_team(m.team_id) or (m.opponent_team_id is not null and is_member_of_team(m.opponent_team_id)))
+    )
+  );

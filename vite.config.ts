@@ -28,6 +28,9 @@ export default defineConfig({
       workbox: {
         // Live-scoring data must never be served stale from cache; only the app shell is cached.
         navigateFallbackDenylist: [/^\/rest\//, /^\/auth\//],
+        // New deploys must replace the old cached app immediately — a stale service worker is
+        // why an installed phone app kept showing an old build (e.g. missing nav tabs).
+        skipWaiting: true, clientsClaim: true, cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
       },
     }),

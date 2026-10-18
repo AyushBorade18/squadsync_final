@@ -6,7 +6,10 @@ export type DismissalKind = 'bowled' | 'caught' | 'lbw' | 'stumped' | 'hit_wicke
 export interface Delivery {
   runsOffBat: number;
   extra?: { type: ExtraType; runs: number };
-  wicket?: { kind: DismissalKind };
+  /** `fielderId` only ever applies to caught, run out and stumped dismissals — who gets credit
+   *  as the catcher / the fielder who effected the run out / the keeper who stumped the
+   *  batter. Null for every other dismissal kind (bowled, lbw, etc. have no fielder credit). */
+  wicket?: { kind: DismissalKind; fielderId?: string | null };
 }
 
 export interface InningsState {

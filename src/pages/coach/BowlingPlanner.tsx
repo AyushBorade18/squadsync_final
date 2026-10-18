@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAuth } from '../../lib/auth';
 import { usePlayers, useTeamStats } from '../../lib/queries';
 import { toSquadPlayer } from '../../lib/repo';
+import { PlayerPicker } from '../../components/PlayerPicker';
 import { Card, EmptyState, SectionLabel, Badge, LoadingState, ErrorState } from '../../components/primitives';
 import { skillsOf, DEFAULT_BASELINES } from '../../algorithms/selection';
 import { planBowling } from '../../algorithms/bowlingPlanner';
@@ -12,7 +13,10 @@ export function BowlingPlannerPage() {
   const [format, setFormat] = useState<FormatId>('T20');
   const { data: allPlayers, isLoading: lp, error: ep } = usePlayers(team?.id);
   const { data: stats, isLoading: ls, error: es } = useTeamStats(team?.id);
-  const players = (allPlayers ?? []).filter((p) => p.bowlingStyle);
+  // Which bowlers the coach is planning to use — chosen explicitly, never assumed.
+  const [chosen, setChosen] = useState<string[] | null>(null);
+  const bowlerPool = (allPlayers ?? []).filter((p) => p.bowlingStyle);
+  const players = chosen ? bowlerPool.filter((p) => chosen.includes(p.id)) : [];
 
   const rules = getFormat(format === 'CUSTOM' ? 'T20' : format);
   const bowlers = useMemo(() => (!stats ? [] : players.map((p) => ({ id: p.id, style: p.bowlingStyle!, skill: skillsOf(toSquadPlayer(p, stats[p.id]), DEFAULT_BASELINES[format]).bowl || 40 }))), [players, stats, format]);
@@ -22,6 +26,10 @@ export function BowlingPlannerPage() {
   if (!team) return null;
   if (lp || ls) return <LoadingState />;
   if (ep || es) return <ErrorState message={(ep || es)!.message} />;
+  if (bowlerPool.length < 2) return <div><h1 className="text-xl font-bold mb-6">Bowling Planner</h1><EmptyState title="Not enough bowlers" body="Add bowlers (pace or spin) to your squad to plan an over-by-over allocation." /></div>;
+  if (!chosen) {
+    return <PlayerPicker title="Bowling Planner — which bowlers are you using?" subtitle="Pick the bowlers you plan to play this match. The over-by-over plan only uses these." players={bowlerPool} min={2} max={bowlerPool.length} initial={bowlerPool.map((p) => p.id)} confirmLabel="Plan overs" detail={(p) => p.bowlingStyle ?? ''} onConfirm={setChosen} />;
+  }
   if (players.length < 2) return <div><h1 className="text-xl font-bold mb-6">Bowling Planner</h1><EmptyState title="Not enough bowlers" body="Add bowlers to your squad to plan an over-by-over allocation." /></div>;
 
   const totals = new Map<string, number>();
@@ -31,6 +39,7 @@ export function BowlingPlannerPage() {
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-xl font-bold">Bowling Planner</h1>
+        <button onClick={() => setChosen(null)} className="text-sm text-[var(--color-pitch-dark)] hover:underline">Change bowlers</button>
         <select value={format} onChange={(e) => setFormat(e.target.value as FormatId)} className="input w-auto">{(['T10', 'T20', 'ODI'] as const).map((f) => <option key={f} value={f}>{getFormat(f).name}</option>)}</select>
       </div>
 

@@ -46,9 +46,9 @@ export function MatchesPage({ role }: { role: 'player' | 'coach' }) {
       ) : (
         <div className="space-y-2.5">
           {matches!.map((m) => (
-            <Card key={m.id} className="p-4 flex items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
+            <Card key={m.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold">{team.shortName} vs {m.opponentName}</span>
                   <Badge tone={m.status === 'live' ? 'leather' : m.status === 'completed' ? 'pitch' : 'neutral'}>{m.status}</Badge>
                   <Badge>{m.format}</Badge>
@@ -72,7 +72,7 @@ export function MatchesPage({ role }: { role: 'player' | 'coach' }) {
                 )}
                 {m.result && <p className="text-sm text-[var(--color-pitch-dark)] mt-1 font-medium">{m.result}</p>}
               </div>
-              <div className="flex gap-2 shrink-0">
+              <div className="flex gap-2 flex-wrap sm:shrink-0">
                 {m.status === 'completed' && <Button variant="secondary" onClick={() => setViewing(m.id)}>Scorecard</Button>}
                 {role === 'coach' && (m.status === 'live' || m.id === earliestUpcoming?.id) && (
                   <Button variant={m.status === 'live' ? 'danger' : 'secondary'} onClick={() => nav(`/${role}/live/${m.id}`)}><Radio size={14} /> {m.status === 'live' ? 'Continue scoring' : 'Start live scoring'}</Button>
@@ -153,7 +153,10 @@ function ScorecardViewer({ matchId, teamId, opponentTeamId, onClose }: { matchId
   // ours) so the opposing team's names resolve too instead of falling back to "Unknown".
   const { data: players } = usePlayers(teamId);
   const { data: opponentPlayers } = usePlayers(opponentTeamId ?? undefined);
-  const nameOf = (id: string) => players?.find((p) => p.id === id)?.name ?? opponentPlayers?.find((p) => p.id === id)?.name ?? 'Unknown';
+  const embedded = new Map<string, string>();
+  (data?.batting ?? []).forEach((b) => b.playerName && embedded.set(b.playerId, b.playerName));
+  (data?.bowling ?? []).forEach((b) => b.playerName && embedded.set(b.playerId, b.playerName));
+  const nameOf = (id: string) => embedded.get(id) ?? players?.find((p) => p.id === id)?.name ?? opponentPlayers?.find((p) => p.id === id)?.name ?? 'Unknown';
 
   return (
     <Modal title="Scorecard" onClose={onClose} wide>
@@ -178,7 +181,7 @@ function ScorecardViewer({ matchId, teamId, opponentTeamId, onClose }: { matchId
                 <table className="w-full text-sm min-w-[360px]">
                   <thead><tr className="text-left text-xs text-[var(--color-ink-muted)]"><th className="py-1">Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead>
                   <tbody>{bat.map((b) => (
-                    <tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 font-medium whitespace-nowrap">{nameOf(b.playerId)} {b.status === 'not_out' && <span className="text-[var(--color-ink-faint)]">*</span>}</td><td className="tabular">{b.runs}</td><td className="tabular">{b.balls}</td><td className="tabular">{b.fours}</td><td className="tabular">{b.sixes}</td><td className="tabular">{b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : '—'}</td></tr>
+                    <tr key={b.id} className="border-t border-[var(--color-line)]"><td className="py-1.5 font-medium whitespace-nowrap pr-2">{nameOf(b.playerId)} {b.status === 'not_out' && <span className="text-[var(--color-ink-faint)]">*</span>}<div className="text-[11px] font-normal text-[var(--color-ink-faint)]">{b.status === 'out' ? (b.dismissal ?? 'out') : b.status === 'not_out' ? 'not out' : 'did not bat'}</div></td><td className="tabular">{b.runs}</td><td className="tabular">{b.balls}</td><td className="tabular">{b.fours}</td><td className="tabular">{b.sixes}</td><td className="tabular">{b.balls ? ((b.runs / b.balls) * 100).toFixed(1) : '—'}</td></tr>
                   ))}</tbody>
                 </table>
                 </div>

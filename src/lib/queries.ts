@@ -13,8 +13,14 @@ export const qk = {
   joinableTeams: () => ['joinableTeams'],
 };
 
-export const usePlayers = (teamId?: string) => useQuery({ queryKey: qk.players(teamId ?? ''), queryFn: () => repo.fetchTeamPlayers(teamId!), enabled: !!teamId });
-export const useMatches = (teamId?: string) => useQuery({ queryKey: qk.matches(teamId ?? ''), queryFn: () => repo.fetchTeamMatches(teamId!), enabled: !!teamId });
+// Two different coach accounts, each in their own browser, never share a React Query cache —
+// an opponent submitting their Playing XI (or anything else) only invalidates THEIR OWN
+// client's cache, not the host's. Without polling, the host's screen stayed stuck on stale
+// data until something else forced a refetch (switching tabs/accounts, which remounts the
+// app) — that's what made starting a match feel like it needed a manual account-switch
+// "unstick". Polling closes that gap without needing real-time infrastructure.
+export const usePlayers = (teamId?: string) => useQuery({ queryKey: qk.players(teamId ?? ''), queryFn: () => repo.fetchTeamPlayers(teamId!), enabled: !!teamId, refetchInterval: 8000 });
+export const useMatches = (teamId?: string) => useQuery({ queryKey: qk.matches(teamId ?? ''), queryFn: () => repo.fetchTeamMatches(teamId!), enabled: !!teamId, refetchInterval: 6000 });
 export const useTeamStats = (teamId?: string) => useQuery({ queryKey: qk.stats(teamId ?? ''), queryFn: () => repo.fetchTeamStats(teamId!), enabled: !!teamId });
 export const useScorecard = (matchId?: string) => useQuery({ queryKey: qk.scorecard(matchId ?? ''), queryFn: () => repo.fetchScorecard(matchId!), enabled: !!matchId });
 export const useTournaments = (profileId?: string) => useQuery({ queryKey: qk.tournaments(profileId ?? ''), queryFn: () => repo.fetchTournaments(profileId!), enabled: !!profileId });
@@ -64,8 +70,8 @@ export function useDelegateScoring() {
   });
 }
 
-export const usePlayingXI = (matchId?: string) => useQuery({ queryKey: ['playingXI', matchId ?? ''], queryFn: () => repo.fetchPlayingXI(matchId!), enabled: !!matchId });
-export const usePlayingXISubmissions = (matchId?: string) => useQuery({ queryKey: ['playingXISubmissions', matchId ?? ''], queryFn: () => repo.fetchPlayingXISubmissions(matchId!), enabled: !!matchId });
+export const usePlayingXI = (matchId?: string) => useQuery({ queryKey: ['playingXI', matchId ?? ''], queryFn: () => repo.fetchPlayingXI(matchId!), enabled: !!matchId, refetchInterval: 4000 });
+export const usePlayingXISubmissions = (matchId?: string) => useQuery({ queryKey: ['playingXISubmissions', matchId ?? ''], queryFn: () => repo.fetchPlayingXISubmissions(matchId!), enabled: !!matchId, refetchInterval: 4000 });
 export function useSubmitPlayingXI(matchId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -218,7 +224,7 @@ export function useUpsertOpponentProfile(teamId: string) {
 // Task 9: match requests
 // ============================================================================
 export const useDiscoverableTeams = (excludeTeamId?: string) => useQuery({ queryKey: ['discoverableTeams', excludeTeamId ?? ''], queryFn: () => repo.fetchDiscoverableTeams(excludeTeamId!), enabled: !!excludeTeamId });
-export const useMatchRequests = (teamId?: string) => useQuery({ queryKey: ['matchRequests', teamId ?? ''], queryFn: () => repo.fetchMatchRequests(teamId!), enabled: !!teamId });
+export const useMatchRequests = (teamId?: string) => useQuery({ queryKey: ['matchRequests', teamId ?? ''], queryFn: () => repo.fetchMatchRequests(teamId!), enabled: !!teamId, refetchInterval: 8000 });
 export function useSendMatchRequest(teamId: string) {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (args: Parameters<typeof repo.sendMatchRequest>[0]) => repo.sendMatchRequest(args), onSuccess: () => qc.invalidateQueries({ queryKey: ['matchRequests', teamId] }) });
@@ -242,6 +248,11 @@ export function useDeleteMatchRequest(teamId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['matchRequests', teamId] }),
   });
 }
+
+// ============================================================================
+// Fielding credit (catches / run-outs / stumpings) for the Leaderboard.
+// ============================================================================
+export const useFieldingStats = (teamId?: string) => useQuery({ queryKey: ['fieldingStats', teamId ?? ''], queryFn: () => repo.fetchFieldingStats(teamId!), enabled: !!teamId });
 
 export function useFinalizeLiveScorecard(teamId: string) {
   const qc = useQueryClient();
