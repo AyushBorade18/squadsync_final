@@ -181,6 +181,7 @@ function LiveMatchSetup({ matchId, teamId, opponentTeamId, opponent, format, cus
         <TossPicker
           matchId={matchId} teamId={teamId} opponentTeamId={opponentTeamId ?? teamId} teamShort={teamShort} opponent={opponent}
           format={format} customOvers={customOvers} ownCaptainName={ownCaptainName} opponentIsTracked={opponentIsTracked}
+          opponentPlayers={oppList}
         />
       ) : (
         <StartInningsPicker
@@ -194,9 +195,9 @@ function LiveMatchSetup({ matchId, teamId, opponentTeamId, opponent, format, cus
   );
 }
 
-function TossPicker({ matchId, teamId, opponentTeamId, teamShort, opponent, format, customOvers, ownCaptainName, opponentIsTracked }: {
+function TossPicker({ matchId, teamId, opponentTeamId, teamShort, opponent, format, customOvers, ownCaptainName, opponentIsTracked, opponentPlayers }: {
   matchId: string; teamId: string; opponentTeamId: string; teamShort: string; opponent: string; format: FormatId; customOvers: number | null;
-  ownCaptainName: string | null; opponentIsTracked: boolean;
+  ownCaptainName: string | null; opponentIsTracked: boolean; opponentPlayers: Player[];
 }) {
   const setToss = useSetToss(matchId);
   const [winner, setWinner] = useState(teamId);
@@ -239,8 +240,11 @@ function TossPicker({ matchId, teamId, opponentTeamId, teamShort, opponent, form
         </Field>
         {!opponentIsTracked && (
           <Field label={`${opponent}'s captain`}>
-            <input className="input" value={opponentCaptainName} onChange={(e) => setOpponentCaptainName(e.target.value)} placeholder="Type their captain's name" />
-            <p className="text-[11px] text-[var(--color-ink-faint)] mt-1">{opponent} isn't a tracked team on SquadSync, so capture their captain's name here.</p>
+            <select className="input" value={opponentCaptainName} onChange={(e) => setOpponentCaptainName(e.target.value)}>
+              <option value="">Choose their captain</option>
+              {opponentPlayers.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <p className="text-[11px] text-[var(--color-ink-faint)] mt-1">Picked from the Playing XI you entered for {opponent}.</p>
           </Field>
         )}
         {err && <p className="text-sm text-[var(--color-leather)]">{err}</p>}
@@ -485,8 +489,8 @@ function LiveCommandCenter({ matchId, teamId, teamShort, opponent, format, custo
   // The live scorecard for the batters/bowler currently out in the middle — folded from the
   // same ball-by-ball log the post-match scorecard is built from (algorithms/scorecardAggregation),
   // so "runs/balls" here always matches what the finished scorecard will show.
-  const battingFigures = useMemo(() => aggregateBatting(balls ?? [], battingRoster.map((p) => p.id), nameOf), [balls, battingRoster]);
-  const bowlingFigures = useMemo(() => aggregateBowling(balls ?? []), [balls]);
+  const battingFigures = aggregateBatting(balls ?? [], battingRoster.map((p) => p.id), nameOf);
+  const bowlingFigures = aggregateBowling(balls ?? []);
   const strikerFig = battingFigures.find((f) => f.playerId === current.strikerId);
   const nonStrikerFig = battingFigures.find((f) => f.playerId === current.nonStrikerId);
   const bowlerFig = bowlingFigures.find((f) => f.playerId === current.currentBowlerId);
